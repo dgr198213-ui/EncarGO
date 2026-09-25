@@ -6,6 +6,7 @@ export type EstadoEncargo =
   | "confirmado"
   | "ejecutando"
   | "completado"
+  | "fallido"
   | "rechazado";
 
 export type CanalEntrada = "chat" | "formulario" | "mixto";
