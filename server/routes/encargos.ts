@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../supabase";
 import { requireAuth } from "../auth";
 import { mapFilaEncargo as mapFila } from "./encargos-mapper";
+import { ejecutarEncargo } from "../router/ejecutor";
 
 export const encargosRouter = Router();
 encargosRouter.use(requireAuth);
@@ -65,8 +66,8 @@ encargosRouter.get("/:id", async (req, res) => {
   res.json(mapFila(encargo, pasos ?? []));
 });
 
-// PATCH /api/encargos/:id/confirmar — el usuario aprueba el espejo de confirmación
-// (de momento solo cambia de estado; disparar la ejecución real es Fase 4 — Router multi-IA)
+// PATCH /api/encargos/:id/confirmar — el usuario aprueba el espejo de confirmación:
+// se marcan los pasos como aprobados y se dispara la ejecución real (Router multi-IA).
 encargosRouter.patch("/:id/confirmar", async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from("encargos")
@@ -77,5 +78,24 @@ encargosRouter.patch("/:id/confirmar", async (req, res) => {
     .single();
 
   if (error || !data) return res.status(404).json({ error: "Encargo no encontrado." });
-  res.json(mapFila(data));
+
+  // Al confirmar el conjunto, se aprueban todos sus pasos — no hay aprobación
+  // granular por paso en esta fase (eso queda para cuando el espejo permita
+  // editar/desmarcar pasos individuales).
+  await supabaseAdmin.from("pasos_ejecucion").update({ aprobado: true }).eq("encargo_id", req.params.id);
+
+  try {
+    await ejecutarEncargo(req.params.id, req.usuarioId!);
+  } catch (err) {
+    // Si el propio disparo del Router falla (no un paso individual, sino el
+    // orquestador), no dejamos el encargo colgado en "ejecutando".
+    await supabaseAdmin.from("encargos").update({ estado: "fallido" }).eq("id", req.params.id);
+  }
+
+  const [{ data: encargoFinal }, { data: pasosFinal }] = await Promise.all([
+    supabaseAdmin.from("encargos").select("*").eq("id", req.params.id).single(),
+    supabaseAdmin.from("pasos_ejecucion").select("*").eq("encargo_id", req.params.id),
+  ]);
+
+  res.json(mapFila(encargoFinal, pasosFinal ?? []));
 });

@@ -8,7 +8,7 @@ interface ProviderResult {
   proveedor: "gemini" | "zai";
 }
 
-async function llamarGemini(prompt: string): Promise<ProviderResult> {
+async function llamarGemini(prompt: string, forzarJSON: boolean): Promise<ProviderResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY no configurada");
 
@@ -19,7 +19,9 @@ async function llamarGemini(prompt: string): Promise<ProviderResult> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
+        generationConfig: forzarJSON
+          ? { responseMimeType: "application/json", temperature: 0.2 }
+          : { temperature: 0.6 },
       }),
     },
   );
@@ -31,7 +33,7 @@ async function llamarGemini(prompt: string): Promise<ProviderResult> {
   return { texto, proveedor: "gemini" };
 }
 
-async function llamarZai(prompt: string): Promise<ProviderResult> {
+async function llamarZai(prompt: string, forzarJSON: boolean): Promise<ProviderResult> {
   const apiKey = process.env.ZAI_API_KEY;
   if (!apiKey) throw new Error("ZAI_API_KEY no configurada");
 
@@ -42,8 +44,8 @@ async function llamarZai(prompt: string): Promise<ProviderResult> {
     body: JSON.stringify({
       model: "glm-4.6",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
-      response_format: { type: "json_object" },
+      temperature: forzarJSON ? 0.2 : 0.6,
+      ...(forzarJSON ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 
@@ -58,10 +60,26 @@ async function llamarZai(prompt: string): Promise<ProviderResult> {
 // clave ausente). Si ambos fallan, propaga el último error.
 export async function completarJSON(prompt: string): Promise<ProviderResult> {
   try {
-    return await llamarGemini(prompt);
+    return await llamarGemini(prompt, true);
   } catch (errorGemini) {
     try {
-      return await llamarZai(prompt);
+      return await llamarZai(prompt, true);
+    } catch (errorZai) {
+      throw new Error(
+        `Ambos proveedores fallaron. Gemini: ${(errorGemini as Error).message} · Z.ai: ${(errorZai as Error).message}`,
+      );
+    }
+  }
+}
+
+// Igual que completarJSON pero sin forzar formato JSON — para generar el
+// contenido final (texto libre) que el Router entrega como resultado de un paso.
+export async function generarTexto(prompt: string): Promise<ProviderResult> {
+  try {
+    return await llamarGemini(prompt, false);
+  } catch (errorGemini) {
+    try {
+      return await llamarZai(prompt, false);
     } catch (errorZai) {
       throw new Error(
         `Ambos proveedores fallaron. Gemini: ${(errorGemini as Error).message} · Z.ai: ${(errorZai as Error).message}`,
