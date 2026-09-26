@@ -29,5 +29,14 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    proxy: {
+      // Solo aplica en local (pnpm dev) — en producción el frontend (Vercel)
+      // y el backend (Railway) están en dominios distintos y se usa
+      // VITE_API_URL en su lugar (ver client/src/lib/api.ts).
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
   },
 });
